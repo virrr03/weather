@@ -23,6 +23,31 @@ MODEL_DIR = os.path.join(BASE_DIR, "data", "models")
 SCALER_PATH = os.path.join(MODEL_DIR, "scaler.pkl")
 
 
+# ============================
+# RENTANG FISIK YANG WAJAR (untuk filter outlier sensor)
+# ============================
+# Batas ini berdasarkan kondisi fisik/meteorologi yang masuk akal untuk
+# lokasi penelitian (iklim tropis), dikonfirmasi dengan analisis
+# distribusi data mentah (persentil). Nilai di luar rentang ini
+# terindikasi sebagai error pembacaan sensor sesaat (disconnect/restart/
+# noise), BUKAN kondisi cuaca ekstrem nyata -- contoh yang ditemukan:
+# pressure=0 hPa, temperature=1 derajat C, humidity=1% RH, yang secara
+# fisik tidak mungkin terjadi di lokasi penelitian.
+#
+# Filter ini WAJIB dijalankan SEBELUM apply_sensor_calibration(), karena
+# fungsi kalibrasi hanya melakukan clamp (pembatasan) nilai, bukan
+# pembuangan baris -- tanpa filter ini, nilai error akan diam-diam
+# diganti clamp menjadi nilai lain yang terlihat wajar padahal bukan
+# hasil pengukuran nyata (contoh: pressure=0 ter-clamp jadi 800).
+RENTANG_VALID = {
+    "temperature": (15, 45),
+    "humidity": (20, 100),
+    "pressure": (990, 1050),
+    "windSpeed": (0, 50),
+    "irradiance": (0, 1400),
+}
+
+
 def preprocess():
 
     if not os.path.exists(RAW_FILE):
@@ -110,8 +135,32 @@ def preprocess():
 
     df = df.dropna(subset=feature_cols)
 
-    print("\n=== DATA SEBELUM KALIBRASI ===")
+    print("\n=== DATA SEBELUM FILTER OUTLIER ===")
     print(df[["timestamp"] + feature_cols].tail(10))
+    print(df.describe())
+
+    # ============================
+    # FILTER OUTLIER FISIK (sensor glitch/dropout)
+    # ============================
+    print("\n=== FILTER OUTLIER SENSOR ===")
+    before = len(df)
+
+    for col, (lo, hi) in RENTANG_VALID.items():
+        removed_this_col = len(df[(df[col] < lo) | (df[col] > hi)])
+        if removed_this_col > 0:
+            print(f"  {col}: {removed_this_col} baris di luar rentang ({lo}, {hi}) akan dibuang")
+        df = df[(df[col] >= lo) & (df[col] <= hi)]
+
+    after = len(df)
+    print(f"\nBaris sebelum filter : {before}")
+    print(f"Baris setelah filter : {after}")
+    print(f"Total baris dibuang   : {before - after}")
+
+    # Verifikasi tidak ada lagi nilai ekstrem
+    print("\n=== VERIFIKASI SETELAH FILTER ===")
+    print("Baris pressure < 990    :", len(df[df["pressure"] < 990]))
+    print("Baris temperature < 15  :", len(df[df["temperature"] < 15]))
+    print("Baris humidity < 20     :", len(df[df["humidity"] < 20]))
 
     # KALIBRASI SENSOR =========================
     df = apply_sensor_calibration(df)

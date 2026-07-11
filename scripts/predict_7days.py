@@ -12,11 +12,18 @@ from firebase_admin import credentials, db
 from tensorflow.keras.models import load_model
 from datetime import datetime
 
+from anfis_corrector import AnfisHybridCorrector
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DATA_PATH = os.path.join(BASE_DIR, "data", "processed", "preprocessed_data.csv")
-MODEL_PATH = os.path.join(BASE_DIR, "data", "models", "rnn_model.h5")
-SCALER_PATH = os.path.join(BASE_DIR, "data", "models", "scaler.pkl")
+MODEL_DIR = os.path.join(BASE_DIR, "data", "models")
+MODEL_PATH = os.path.join(MODEL_DIR, "rnn_model.h5")
+SCALER_PATH = os.path.join(MODEL_DIR, "scaler.pkl")
+
+# Model & scaler ANFIS (lihat train_anfis.py & preprocess_anfis.py)
+ANFIS_MODEL_DIR = MODEL_DIR
+ANFIS_SCALER_DIR = MODEL_DIR
 
 FEATURE_COLS = [
     "temperature",
@@ -81,13 +88,6 @@ def load_latest_model_accuracy():
 def load_data():
     df = pd.read_csv(DATA_PATH)
 
-    # # jaga-jaga kalau file masih punya irradiance tapi belum ada lightIntensity
-    # if "lightIntensity" not in df.columns:
-    #     if "irradiance" in df.columns:
-    #         df["lightIntensity"] = df["irradiance"]
-    #     else:
-    #         df["lightIntensity"] = 0.0
-
     scaler = joblib.load(SCALER_PATH)
 
     data_scaled = df[FEATURE_COLS].values.astype(float)
@@ -105,6 +105,11 @@ def predict_multi_steps(n_steps_ahead=168):
 
     model = load_model(MODEL_PATH, compile=False)
 
+    anfis_corrector = AnfisHybridCorrector(ANFIS_MODEL_DIR, ANFIS_SCALER_DIR)
+
+    if not anfis_corrector.is_ready():
+        print("⚠️  Koreksi ANFIS tidak aktif -- prediksi memakai output RNN murni.")
+
     X_input = data_scaled[-TIME_STEPS:].reshape(
         1,
         TIME_STEPS,
@@ -118,31 +123,30 @@ def predict_multi_steps(n_steps_ahead=168):
         y_pred_scaled = model.predict(X_input, verbose=0)
         y_pred_scaled = np.clip(y_pred_scaled, 0, 1)
 
-        y_pred_original = scaler.inverse_transform(
-            y_pred_scaled
-        )[0]
+        # 1) RNN scaled (0-1) -> satuan asli (pakai scaler.pkl milik RNN)
+        y_pred_original = scaler.inverse_transform(y_pred_scaled)
 
-        # light_value = round(max(0, float(y_pred_original[5])), 4)
-
-        # # kalau masih bentuk 0-1000, ubah ke 0-1
-        # if light_value > 1:
-        #     light_value = light_value / 1000.0
-
-        # light_value = round(max(0, min(light_value, 1)), 4)
+        # 2) satuan asli -> dikoreksi ANFIS (pakai anfis_x_scaler / anfis_y_scaler)
+        y_corrected_original = anfis_corrector.correct(y_pred_original)
 
         prediction = {
-            "temperature": round(max(0, float(y_pred_original[0])), 2),
-            "humidity": round(max(0, min(float(y_pred_original[1]), 100)), 2),
-            "pressure": round(max(0, float(y_pred_original[2])), 2),
-            "windSpeed": round(max(0, float(y_pred_original[3])), 2),
-            "irradiance": round(max(0, float(y_pred_original[4])), 2)
+            "temperature": round(max(0, float(y_corrected_original[0, 0])), 2),
+            "humidity": round(max(0, min(float(y_corrected_original[0, 1]), 100)), 2),
+            "pressure": round(max(0, float(y_corrected_original[0, 2])), 2),
+            "windSpeed": round(max(0, float(y_corrected_original[0, 3])), 2),
+            "irradiance": round(max(0, float(y_corrected_original[0, 4])), 2)
         }
 
         predictions.append(prediction)
 
+        # 3) hasil terkoreksi dibalikkan lagi ke skala RNN (scaler.pkl) untuk
+        #    dipakai sebagai input jam berikutnya (feedback loop hybrid)
+        y_feedback_scaled = scaler.transform(y_corrected_original)
+        y_feedback_scaled = np.clip(y_feedback_scaled, 0, 1)
+
         X_input = np.append(
             X_input[:, 1:, :],
-            y_pred_scaled.reshape(1, 1, -1),
+            y_feedback_scaled.reshape(1, 1, -1),
             axis=1
         )
 
@@ -250,7 +254,7 @@ if __name__ == "__main__":
 
     send_to_firebase(daily_predictions)
 
-    print("\n=== PREDIKSI 7 HARI ===")
+    print("\n=== PREDIKSI 7 HARI (HYBRID RNN + ANFIS) ===")
 
     for p in daily_predictions:
 

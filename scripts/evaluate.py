@@ -15,6 +15,11 @@ def safe_mape(y_actual, y_pred):
     """
     MAPE aman untuk data yang mengandung nilai 0.
     Data aktual yang bernilai 0 atau sangat kecil tidak dihitung.
+
+    Mengembalikan 0.0 (bukan None) ketika semua nilai aktual berada
+    di bawah EPSILON, supaya nilai ini tetap bisa diplot/disimpan
+    sebagai JSON tanpa error. Ini BUKAN berarti model sempurna --
+    itu tandanya MAPE tidak terdefinisi untuk subset data ini.
     """
     y_actual = np.array(y_actual)
     y_pred = np.array(y_pred)
@@ -22,7 +27,7 @@ def safe_mape(y_actual, y_pred):
     mask = np.abs(y_actual) > EPSILON
 
     if not np.any(mask):
-        return None
+        return 0.0
 
     mape = np.mean(
         np.abs((y_actual[mask] - y_pred[mask]) / y_actual[mask])
