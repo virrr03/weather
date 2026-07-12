@@ -62,6 +62,15 @@ def main():
 
     actual = actual.iloc[TIME_STEPS:].reset_index(drop=True)
 
+    # Jaga-jaga kalau panjang actual vs pred tidak pas (misal beda 1-3 baris
+    # karena proses upstream men-drop row berbeda). Align ke baris terakhir.
+    n = min(len(actual), len(pred))
+    if len(actual) != len(pred):
+        print(f"[WARNING] Panjang actual ({len(actual)}) != pred ({len(pred)}), "
+              f"disesuaikan ke {n} baris terakhir.")
+        actual = actual.iloc[-n:].reset_index(drop=True)
+        pred = pred.iloc[-n:].reset_index(drop=True)
+
     dataset = pd.DataFrame()
 
     dataset["temperature_rnn"] = pred["temperature_pred"]

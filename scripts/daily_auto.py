@@ -16,6 +16,11 @@ STEPS = [
     ("Preprocessing data daily", "preprocess.py"),
     ("Training RNN", "train_rnn.py"),
     ("Evaluasi dan plot model", "run_evaluation.py"),
+    ("generate rnn prediksi", "generate_rnn_predictions.py"),
+    ("buat database anfis", "build_anfis_dataset.py"),
+    ("preprcessing dataset untuk anfis", "preprocess_anfis.py"),
+    ("training anfis", "train_anfis.py"),
+    ("evaluasi model anfis", "evaluate_anfis.py"),
     ("Prediksi 7 hari", "predict_7days.py"),
     ("Prediksi 24 jam daily", "predict_24h.py"),
 ]

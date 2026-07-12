@@ -12,6 +12,7 @@ from firebase_admin import credentials, db
 from tensorflow.keras.models import load_model
 from datetime import datetime
 
+from anfis_interpreter import WeatherFuzzyInterpreter
 from anfis_corrector import AnfisHybridCorrector
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -167,6 +168,10 @@ def summarize_daily_predictions(predictions):
         "Minggu"
     ]
 
+    # Satu instance dipakai untuk semua hari (rule/fuzzy set-nya sama,
+    # tidak perlu dibuat ulang tiap iterasi).
+    anfis_interpreter = WeatherFuzzyInterpreter()
+
     for day in range(7):
 
         start = day * 24
@@ -182,6 +187,12 @@ def summarize_daily_predictions(predictions):
             "windSpeed": float(round(np.mean([p["windSpeed"] for p in day_data]), 2)),
             "irradiance": float(round(np.mean([p["irradiance"] for p in day_data]), 2))
         }
+
+        # Risk/interpretasi/kategori dihitung dari RATA-RATA harian di atas
+        # (konsisten dengan cara field numerik lain juga dirata-ratakan
+        # per hari, bukan dari 24 nilai per jam terpisah).
+        anfis_result = anfis_interpreter.evaluate(summary)
+        summary["anfis"] = anfis_result
 
         daily_summary.append(summary)
 
@@ -265,4 +276,7 @@ if __name__ == "__main__":
             f"\nTekanan rata-rata: {p['pressure']} hPa"
             f"\nKecepatan Angin rata-rata: {p['windSpeed']} m/s"
             f"\nIrradiance rata-rata: {p['irradiance']} lux"
+            f"\nKategori: {p['anfis']['kategori']}"
+            f"\nRisk: {p['anfis']['risk']}"
+            f"\nInterpretasi: {p['anfis']['interpretation']}"
         )

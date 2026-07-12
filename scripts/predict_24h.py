@@ -12,7 +12,7 @@ from firebase_admin import credentials, db
 from tensorflow.keras.models import load_model
 from datetime import datetime
 
-from anfis_interpreter import WeatherANFIS
+from anfis_interpreter import WeatherFuzzyInterpreter
 from anfis_corrector import AnfisHybridCorrector
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -120,7 +120,7 @@ def predict_multi_steps(n_steps_ahead=24):
 
     predictions = []
 
-    anfis_interpreter = WeatherANFIS()
+    anfis_interpreter = WeatherFuzzyInterpreter()
 
     for hour in range(n_steps_ahead):
 
@@ -143,7 +143,10 @@ def predict_multi_steps(n_steps_ahead=24):
             "irradiance": round(max(0, float(y_corrected_original[0, 4])), 2)
         }
 
-        # Label risiko/interpretasi dihitung dari angka yang SUDAH dikoreksi ANFIS
+        # Risk / interpretasi / kategori dihitung dari angka yang SUDAH
+        # dikoreksi ANFIS. anfis_result berisi: risk, interpretation,
+        # kategori (Cerah/Berawan/Mendung/Hujan), plus alias lama
+        # Risk/Interpretasi untuk kompatibilitas field Firebase yang sudah ada.
         anfis_result = anfis_interpreter.evaluate(prediction)
 
         prediction["anfis"] = anfis_result
@@ -199,6 +202,7 @@ if __name__ == "__main__":
             f"\nTekanan: {p['pressure']} hPa"
             f"\nKecepatan Angin: {p['windSpeed']} m/s"
             f"\nIrradiance: {p['irradiance']} lux"
+            f"\nKategori: {p['anfis']['kategori']}"
             f"\nRisk: {p['anfis']['risk']}"
             f"\nInterpretasi: {p['anfis']['interpretation']}"
         )

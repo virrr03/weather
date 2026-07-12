@@ -5,18 +5,24 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
 import json
+import joblib
 import numpy as np
 import pandas as pd
 from datetime import datetime
 from tensorflow.keras.models import load_model
 
-from evaluate import evaluate_all
+from evaluate import evaluate_all_original_scale
 from plot_evaluation import plot_all_evaluation
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DATA_PATH = os.path.join(BASE_DIR, "data", "processed", "preprocessed_data.csv")
 MODEL_PATH = os.path.join(BASE_DIR, "data", "models", "rnn_model.h5")
+
+# Scaler yang dipakai saat preprocessing RNN (fit di data training).
+# SESUAIKAN nama file ini dengan yang benar-benar dipakai train_rnn.py --
+# harus scaler yang SAMA persis, bukan yang di-fit ulang di sini.
+SCALER_PATH = os.path.join(BASE_DIR, "data", "models", "scaler.pkl")
 
 RESULTS_DIR = os.path.join(BASE_DIR, "data", "results")
 LATEST_DIR = os.path.join(RESULTS_DIR, "latest")
@@ -101,42 +107,50 @@ def main():
 
     df = pd.read_csv(DATA_PATH)
 
+    # data_scaled di sini TETAP hasil scaler.transform() (0-1) -- itu memang
+    # yang dibutuhkan sebagai input model. clip hanya jaga-jaga floating point,
+    # BUKAN untuk "membuang" rentang datanya.
     data_scaled = df[FEATURE_COLS].values.astype(float)
     data_scaled = np.clip(data_scaled, 0, 1)
 
-    X, y_actual = create_sequences(data_scaled, TIME_STEPS)
+    X, y_actual_scaled = create_sequences(data_scaled, TIME_STEPS)
 
     if len(X) == 0:
         print("⚠️ Data terlalu sedikit untuk evaluasi.")
         return
 
-    # PENTING: split ini HARUS sama persis dengan train_rnn.py,
-    # supaya evaluasi ini hanya memakai 15% data yang benar-benar
-    # belum pernah dilihat model saat training maupun validasi.
-    # Kalau tidak disamakan, hasil evaluasi akan bocor (data leakage)
-    # dan terlihat jauh lebih bagus dari performa generalisasi asli.
     n = len(X)
     train_end = int(n * 0.70)
     val_end = int(n * 0.85)
 
     X_test = X[val_end:]
-    y_test = y_actual[val_end:]
+    y_test_scaled = y_actual_scaled[val_end:]
 
     print(f"Total sequence : {n}")
     print(f"Test (murni)   : {len(X_test)}  (index {val_end}..{n-1})")
 
     model = load_model(MODEL_PATH, compile=False)
 
-    y_pred = model.predict(X_test, verbose=0)
-    y_pred = np.clip(y_pred, 0, 1)
+    y_pred_scaled = model.predict(X_test, verbose=0)
+    y_pred_scaled = np.clip(y_pred_scaled, 0, 1)
 
-    metrics = evaluate_all(y_test, y_pred, FEATURE_COLS)
+    # Muat scaler yang SAMA dipakai saat fit preprocessing RNN, urutan
+    # kolom harus sama dengan FEATURE_COLS.
+    y_scaler = joblib.load(SCALER_PATH)
+
+    # evaluate_all_original_scale() melakukan inverse_transform sendiri,
+    # sehingga metrik dihitung di satuan asli (°C, %, hPa, m/s, W/m²),
+    # bukan di ruang ternormalisasi 0-1 -- supaya apple-to-apple dengan
+    # kolom RNN_* di rnn_vs_anfis_comparison.csv.
+    metrics = evaluate_all_original_scale(
+        y_test_scaled, y_pred_scaled, FEATURE_COLS, y_scaler
+    )
 
     saved_files = plot_all_evaluation(metrics)
 
     history_path, summary_path = save_to_history(metrics, n, len(X_test))
 
-    print("\n=== HASIL EVALUASI (TEST SET MURNI) ===")
+    print("\n=== HASIL EVALUASI (TEST SET MURNI, SATUAN ASLI) ===")
     print(json.dumps(metrics, indent=4))
 
     print("\n=== FILE EVALUASI TERSIMPAN ===")
@@ -144,8 +158,6 @@ def main():
     print("History JSON  :", history_path)
     print("History CSV   :", summary_path)
 
-    print("\n✅ Evaluasi model (test murni, tanpa leakage) berhasil disimpan.")
-
-
+    print("\n✅ Evaluasi model (test murni, satuan asli, tanpa leakage) berhasil disimpan.")
 if __name__ == "__main__":
     main()

@@ -2,23 +2,75 @@ import simpful as sf
 sf.suppress_banner = True
 
 
-class WeatherANFIS:
+# ============================================================
+# SUMBER KEBENARAN TUNGGAL UNTUK SEMUA AMBANG BATAS
+# ============================================================
+# Semua breakpoint fuzzy set DAN semua threshold di classify_condition()/
+# interpret_weather() mengacu ke konstanta ini. Sebelumnya angka yang sama
+# (mis. "tekanan rendah") didefinisikan dua kali dengan nilai berbeda di
+# tempat berbeda -- itu bug laten yang membuat hasil interpretasi bisa
+# tidak konsisten dengan kategori fuzzy-nya sendiri.
+#
+# CATATAN: nilai-nilai ini masih hasil estimasi manual (bukan hasil
+# clustering dari data aktual stasiun cuaca). Untuk revisi berikutnya,
+# nilai ini sebaiknya diganti dengan hasil analisis distribusi data
+# historis Anda sendiri (lihat diskusi clustering yang sempat dibahas).
+
+TEMP_DINGIN_AKHIR = 20
+TEMP_NORMAL_TENGAH = 29
+TEMP_PANAS_MULAI = 32
+
+HUM_KERING_AKHIR = 35
+HUM_SEDANG_TENGAH = 65
+HUM_LEMBAB_MULAI = 75
+
+WIND_PELAN_AKHIR = 3
+WIND_SEDANG_TENGAH = 12
+WIND_KENCANG_MULAI = 15
+
+IRRADIANCE_GELAP_AKHIR = 280
+IRRADIANCE_SEDANG_TENGAH = 500
+IRRADIANCE_TERANG_MULAI = 700
+
+PRESSURE_RENDAH_AKHIR = 1002
+PRESSURE_NORMAL_TENGAH = 1013
+PRESSURE_TINGGI_MULAI = 1020
+
+
+class WeatherFuzzyInterpreter:
+    """
+    Sistem Inferensi Fuzzy MAMDANI (bukan ANFIS) untuk menerjemahkan
+    hasil numerik model hybrid RNN-ANFIS menjadi skor risiko (0-100),
+    narasi kondisi cuaca, dan kategori cuaca (Cerah/Berawan/Mendung/Hujan)
+    yang bisa dipahami pengguna awam.
+
+    PENTING (untuk penulisan Bab III/metodologi):
+    Rule dan membership function di sini didesain manual berdasarkan
+    pengetahuan domain (expert rules), BUKAN dipelajari/di-training dari
+    data seperti model RNN-ANFIS untuk prediksi numerik. Ini adalah
+    komponen terpisah dan sengaja tidak disebut "ANFIS" untuk menghindari
+    kerancuan dengan model hybrid utama.
+
+    KETERBATASAN: hardware stasiun cuaca (Tabel 1 pada proposal) tidak
+    memiliki sensor curah hujan. Kategori "Hujan" pada classify_condition()
+    adalah INFERENSI tidak langsung dari kombinasi kelembapan tinggi +
+    tekanan rendah + cahaya rendah, bukan pengukuran hujan aktual.
+    """
+
     def __init__(self):
         self.FS = sf.FuzzySystem(show_banner=False)
 
         # Temperature
         T_low = sf.FuzzySet(
-            function=sf.Trapezoidal_MF(0,0,20,25),
+            function=sf.Trapezoidal_MF(0, 0, TEMP_DINGIN_AKHIR, TEMP_DINGIN_AKHIR + 5),
             term="Dingin"
         )
-
         T_mid = sf.FuzzySet(
-            function=sf.Triangular_MF(23,29,34),
+            function=sf.Triangular_MF(TEMP_DINGIN_AKHIR + 3, TEMP_NORMAL_TENGAH, TEMP_PANAS_MULAI + 2),
             term="Normal"
         )
-
         T_high = sf.FuzzySet(
-            function=sf.Trapezoidal_MF(32,36,50,50),
+            function=sf.Trapezoidal_MF(TEMP_PANAS_MULAI, TEMP_PANAS_MULAI + 4, 50, 50),
             term="Panas"
         )
         self.FS.add_linguistic_variable(
@@ -28,17 +80,15 @@ class WeatherANFIS:
 
         # Humidity
         H_low = sf.FuzzySet(
-            function=sf.Trapezoidal_MF(0,0,35,55),
+            function=sf.Trapezoidal_MF(0, 0, HUM_KERING_AKHIR, HUM_KERING_AKHIR + 20),
             term="Kering"
         )
-
         H_mid = sf.FuzzySet(
-            function=sf.Triangular_MF(45,65,80),
+            function=sf.Triangular_MF(HUM_KERING_AKHIR + 10, HUM_SEDANG_TENGAH, HUM_LEMBAB_MULAI + 5),
             term="Sedang"
         )
-
         H_high = sf.FuzzySet(
-            function=sf.Trapezoidal_MF(75,85,100,100),
+            function=sf.Trapezoidal_MF(HUM_LEMBAB_MULAI, HUM_LEMBAB_MULAI + 10, 100, 100),
             term="Lembab"
         )
         self.FS.add_linguistic_variable(
@@ -48,17 +98,15 @@ class WeatherANFIS:
 
         # Windspeed
         W_low = sf.FuzzySet(
-            function=sf.Trapezoidal_MF(0,0,3,7),
+            function=sf.Trapezoidal_MF(0, 0, WIND_PELAN_AKHIR, WIND_PELAN_AKHIR + 4),
             term="Pelan"
         )
-
         W_mid = sf.FuzzySet(
-            function=sf.Triangular_MF(5,12,18),
+            function=sf.Triangular_MF(WIND_PELAN_AKHIR + 2, WIND_SEDANG_TENGAH, WIND_KENCANG_MULAI + 3),
             term="Sedang"
         )
-
         W_high = sf.FuzzySet(
-            function=sf.Trapezoidal_MF(15,20,30,30),
+            function=sf.Trapezoidal_MF(WIND_KENCANG_MULAI, WIND_KENCANG_MULAI + 5, 30, 30),
             term="Kencang"
         )
         self.FS.add_linguistic_variable(
@@ -68,72 +116,51 @@ class WeatherANFIS:
 
         # Irradiance (lux)
         L_low = sf.FuzzySet(
-            function=sf.Trapezoidal_MF(0,0,120,280),
+            function=sf.Trapezoidal_MF(0, 0, IRRADIANCE_GELAP_AKHIR - 160, IRRADIANCE_GELAP_AKHIR),
             term="Gelap"
         )
-
         L_mid = sf.FuzzySet(
-            function=sf.Triangular_MF(250,500,750),
+            function=sf.Triangular_MF(IRRADIANCE_GELAP_AKHIR - 30, IRRADIANCE_SEDANG_TENGAH, IRRADIANCE_TERANG_MULAI + 50),
             term="Sedang"
         )
-
         L_high = sf.FuzzySet(
-            function=sf.Trapezoidal_MF(700,850,1000,1000),
+            function=sf.Trapezoidal_MF(IRRADIANCE_TERANG_MULAI, IRRADIANCE_TERANG_MULAI + 150, 1000, 1000),
             term="Terang"
         )
         self.FS.add_linguistic_variable(
             "Irradiance",
-            sf.LinguisticVariable(
-                [L_low, L_mid, L_high],
-                universe_of_discourse=[0,1000]
-            )
+            sf.LinguisticVariable([L_low, L_mid, L_high], universe_of_discourse=[0, 1000])
         )
 
         # Pressure (hPa)
         P_low = sf.FuzzySet(
-            function=sf.Trapezoidal_MF(950,970,990,1002),
+            function=sf.Trapezoidal_MF(950, 970, 990, PRESSURE_RENDAH_AKHIR),
             term="Rendah"
         )
-
         P_mid = sf.FuzzySet(
-            function=sf.Triangular_MF(998,1013,1025),
+            function=sf.Triangular_MF(PRESSURE_RENDAH_AKHIR - 4, PRESSURE_NORMAL_TENGAH, PRESSURE_TINGGI_MULAI + 5),
             term="Normal"
         )
-
         P_high = sf.FuzzySet(
-            function=sf.Trapezoidal_MF(1020,1030,1055,1060),
+            function=sf.Trapezoidal_MF(PRESSURE_TINGGI_MULAI, PRESSURE_TINGGI_MULAI + 10, 1055, 1060),
             term="Tinggi"
         )
         self.FS.add_linguistic_variable(
             "Pressure",
-            sf.LinguisticVariable(
-                [P_low, P_mid, P_high],
-                universe_of_discourse=[900,1060]
-            )
+            sf.LinguisticVariable([P_low, P_mid, P_high], universe_of_discourse=[900, 1060])
         )
 
         # Output Risk
-        Risk_low = sf.FuzzySet(
-            function=sf.Trapezoidal_MF(0,0,20,40),
-            term="Rendah"
-        )
-
-        Risk_mid = sf.FuzzySet(
-            function=sf.Triangular_MF(30,50,70),
-            term="Sedang"
-        )
-
-        Risk_high = sf.FuzzySet(
-            function=sf.Trapezoidal_MF(60,80,100,100),
-            term="Tinggi"
-        )
+        Risk_low = sf.FuzzySet(function=sf.Trapezoidal_MF(0, 0, 20, 40), term="Rendah")
+        Risk_mid = sf.FuzzySet(function=sf.Triangular_MF(30, 50, 70), term="Sedang")
+        Risk_high = sf.FuzzySet(function=sf.Trapezoidal_MF(60, 80, 100, 100), term="Tinggi")
         self.FS.add_linguistic_variable(
             "Risk",
             sf.LinguisticVariable([Risk_low, Risk_mid, Risk_high], universe_of_discourse=[0, 100])
         )
 
         rules = [
-            #tinggi
+            # tinggi
             "IF (Pressure IS Rendah) AND (Humidity IS Lembab) THEN (Risk IS Tinggi)",
             "IF (Pressure IS Rendah) AND (Irradiance IS Gelap) THEN (Risk IS Tinggi)",
             "IF (Pressure IS Rendah) AND (Windspeed IS Sedang) THEN (Risk IS Tinggi)",
@@ -144,7 +171,7 @@ class WeatherANFIS:
             "IF (Temperature IS Panas) AND (Pressure IS Rendah) THEN (Risk IS Tinggi)",
             "IF (Humidity IS Lembab) AND (Windspeed IS Sedang) AND (Pressure IS Rendah) THEN (Risk IS Tinggi)",
 
-            #sedang
+            # sedang
             "IF (Pressure IS Normal) AND (Humidity IS Lembab) THEN (Risk IS Sedang)",
             "IF (Pressure IS Normal) AND (Irradiance IS Gelap) THEN (Risk IS Sedang)",
             "IF (Humidity IS Lembab) AND (Irradiance IS Sedang) THEN (Risk IS Sedang)",
@@ -153,7 +180,7 @@ class WeatherANFIS:
             "IF (Windspeed IS Sedang) THEN (Risk IS Sedang)",
             "IF (Pressure IS Rendah) THEN (Risk IS Sedang)",
 
-            #rendah
+            # rendah
             "IF (Pressure IS Tinggi) AND (Windspeed IS Pelan) THEN (Risk IS Rendah)",
             "IF (Pressure IS Normal) AND (Windspeed IS Pelan) THEN (Risk IS Rendah)",
             "IF (Pressure IS Tinggi) AND (Irradiance IS Terang) THEN (Risk IS Rendah)",
@@ -172,6 +199,39 @@ class WeatherANFIS:
 
         self.FS.add_rules(rules)
 
+    # ------------------------------------------------------------
+    # KATEGORI CUACA EKSPLISIT (untuk Tabel 16 proposal & dashboard)
+    # ------------------------------------------------------------
+    def classify_condition(self, prediction):
+        """
+        Mengembalikan salah satu dari: "Cerah", "Berawan", "Mendung", "Hujan".
+
+        Dihitung dari threshold PLAIN (bukan lewat mesin fuzzy simpful),
+        pakai konstanta yang SAMA dengan breakpoint fuzzy set di atas --
+        supaya tidak ada dua definisi berbeda untuk batas yang sama.
+
+        Lihat catatan keterbatasan di docstring kelas ini soal kategori
+        "Hujan" yang sifatnya inferensi, bukan pengukuran langsung.
+        """
+        irradiance = prediction.get("irradiance", 0.0)
+        humidity = prediction.get("humidity", 0.0)
+        pressure = prediction.get("pressure", 0.0)
+
+        if (
+            humidity >= HUM_LEMBAB_MULAI
+            and pressure <= PRESSURE_RENDAH_AKHIR
+            and irradiance <= IRRADIANCE_GELAP_AKHIR
+        ):
+            return "Hujan"
+
+        if irradiance <= IRRADIANCE_GELAP_AKHIR:
+            return "Mendung"
+
+        if irradiance <= IRRADIANCE_TERANG_MULAI:
+            return "Berawan"
+
+        return "Cerah"
+
     def interpret_weather(self, prediction, risk_value):
         temp = prediction.get("temperature", 0.0)
         hum = prediction.get("humidity", 0.0)
@@ -179,52 +239,51 @@ class WeatherANFIS:
         pressure = prediction.get("pressure", 0.0)
         light = prediction.get("irradiance", 0.0)
 
-        #rendah
+        # rendah
         if risk_value < 35:
-            if pressure >= 1015 and wind <= 5 and light >= 700:
-                return "🌞 Aman: Cuaca cerah dan stabil, sangat baik untuk aktivitas luar ruangan."
-            elif pressure >= 1010 and wind <= 8:
-                return "🌤️ Aman: Cuaca relatif stabil dengan sedikit potensi perubahan."
+            if pressure >= PRESSURE_TINGGI_MULAI and wind <= WIND_PELAN_AKHIR + 2 and light >= IRRADIANCE_TERANG_MULAI:
+                return "Aman: Cuaca cerah dan stabil, sangat baik untuk aktivitas luar ruangan."
+            elif pressure >= PRESSURE_NORMAL_TENGAH - 3 and wind <= WIND_SEDANG_TENGAH - 4:
+                return "Aman: Cuaca relatif stabil dengan sedikit potensi perubahan."
             else:
-                return "☁️ Aman: Risiko cuaca rendah."
+                return "Aman: Risiko cuaca rendah."
 
-        #sedang
+        # sedang
         elif risk_value < 60:
-            if pressure < 1010 and hum >= 75:
-                return "☁️ Waspada: Kelembapan tinggi dan tekanan udara mulai menurun."
-            elif light < 400:
-                return "🌥️ Waspada: Intensitas cahaya rendah, langit cenderung mendung."
+            if pressure < PRESSURE_NORMAL_TENGAH - 3 and hum >= HUM_LEMBAB_MULAI:
+                return "Waspada: Kelembapan tinggi dan tekanan udara mulai menurun."
+            elif light < IRRADIANCE_SEDANG_TENGAH - 100:
+                return "Waspada: Intensitas cahaya rendah, langit cenderung mendung."
             else:
-                return "⚠️ Waspada: Terdapat potensi perubahan kondisi cuaca."
+                return "Waspada: Terdapat potensi perubahan kondisi cuaca."
 
-        #tinggi
+        # tinggi
         elif risk_value < 80:
-            if wind >= 15:
-                return "🌬️ Risiko Tinggi: Kecepatan angin cukup tinggi, berhati-hati terhadap aktivitas luar ruangan."
-            elif pressure < 1005 and hum >= 80:
-                return "🌧️ Risiko Tinggi: Tekanan udara rendah disertai kelembapan tinggi mengindikasikan cuaca tidak stabil."
+            if wind >= WIND_KENCANG_MULAI:
+                return "Risiko Tinggi: Kecepatan angin cukup tinggi, berhati-hati terhadap aktivitas luar ruangan."
+            elif pressure < PRESSURE_RENDAH_AKHIR + 3 and hum >= HUM_LEMBAB_MULAI + 5:
+                return "Risiko Tinggi: Tekanan udara rendah disertai kelembapan tinggi mengindikasikan cuaca tidak stabil."
             else:
-                return "⚠️ Risiko Tinggi: Kondisi atmosfer mulai tidak stabil."
+                return "Risiko Tinggi: Kondisi atmosfer mulai tidak stabil."
 
-        #sangat tinggi
+        # sangat tinggi
         else:
-            if wind >= 20:
-                return "⛈️ Bahaya: Angin sangat kencang, hindari aktivitas di luar ruangan."
-            elif pressure < 995:
-                return "⛈️ Bahaya: Tekanan udara sangat rendah, berpotensi terjadi cuaca ekstrem."
-            elif hum >= 90 and light <= 200:
-                return "🌩️ Bahaya: Kelembapan sangat tinggi dan intensitas cahaya sangat rendah menunjukkan kondisi cuaca yang sangat buruk."
+            if wind >= WIND_KENCANG_MULAI + 5:
+                return "Bahaya: Angin sangat kencang, hindari aktivitas di luar ruangan."
+            elif pressure < PRESSURE_RENDAH_AKHIR - 7:
+                return "Bahaya: Tekanan udara sangat rendah, berpotensi terjadi cuaca ekstrem."
+            elif hum >= HUM_LEMBAB_MULAI + 15 and light <= IRRADIANCE_GELAP_AKHIR - 80:
+                return "Bahaya: Kelembapan sangat tinggi dan intensitas cahaya sangat rendah menunjukkan kondisi cuaca yang sangat buruk."
             else:
-                return "🚨 Bahaya: Kondisi atmosfer sangat tidak stabil, tingkat kewaspadaan tinggi."
+                return "Bahaya: Kondisi atmosfer sangat tidak stabil, tingkat kewaspadaan tinggi."
 
     def evaluate(self, prediction):
         temperature = prediction.get("temperature", 0.0)
         humidity = prediction.get("humidity", 0.0)
         wind_speed = prediction.get("windSpeed", 0.0)
-        irradiance = prediction.get("irradiance",0)
-        pressure = prediction.get("pressure",0.0)
+        irradiance = prediction.get("irradiance", 0.0)
+        pressure = prediction.get("pressure", 0.0)
 
-        # Supaya interpret_weather juga punya lightIntensity
         prediction_safe = prediction.copy()
         prediction_safe["irradiance"] = irradiance
 
@@ -238,10 +297,14 @@ class WeatherANFIS:
         risk = round(float(risk), 2)
 
         interpretation = self.interpret_weather(prediction_safe, risk)
+        kategori = self.classify_condition(prediction_safe)
 
         return {
             "risk": risk,
             "interpretation": interpretation,
+            "kategori": kategori,
+            # nama lama dipertahankan supaya field lama di Firebase/dashboard
+            # yang sudah terlanjur dipakai tidak mendadak hilang
             "Risk": risk,
-            "Interpretasi": interpretation
+            "Interpretasi": interpretation,
         }
