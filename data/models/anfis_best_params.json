@@ -1,0 +1,27 @@
+{
+  "input_dim": 5,
+  "mf_class": "Gaussian",
+  "task": "regression",
+  "per_variabel": {
+    "Temperature": {
+      "num_rules": 5,
+      "reg_lambda": 0.001
+    },
+    "Humidity": {
+      "num_rules": 3,
+      "reg_lambda": 0.0001
+    },
+    "Pressure": {
+      "num_rules": 5,
+      "reg_lambda": 0.0001
+    },
+    "WindSpeed": {
+      "num_rules": 3,
+      "reg_lambda": 0.0001
+    },
+    "Irradiance": {
+      "num_rules": 7,
+      "reg_lambda": 0.0001
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+    "timestamp": "2026-07-11 12:29:25",
+    "total_sequence": 3812,
+    "test_sequence": 572,
+    "metrics": {
+        "overall": {
+            "MAE": 0.026,
+            "MAPE": 8.6559,
+            "RMSE": 0.0528,
+            "Accuracy": 97.4,
+            "R2_Score": 0.881
+        },
+        "per_feature": {
+            "temperature": {
+                "MAE": 0.0112,
+                "MAPE": 11.0755,
+                "RMSE": 0.0265,
+                "Accuracy": 98.88,
+                "R2_Score": 0.9882
+            },
+            "humidity": {
+                "MAE": 0.0382,
+                "MAPE": 7.0958,
+                "RMSE": 0.054,
+                "Accuracy": 96.18,
+                "R2_Score": 0.9746
+            },
+            "pressure": {
+                "MAE": 0.0143,
+                "MAPE": 2.3454,
+                "RMSE": 0.0189,
+                "Accuracy": 98.57,
+                "R2_Score": 0.9545
+            },
+            "windSpeed": {
+                "MAE": 0.0534,
+                "MAPE": 33.7472,
+                "RMSE": 0.0879,
+                "Accuracy": 94.66,
+                "R2_Score": 0.498
+            },
+            "irradiance": {
+                "MAE": 0.0126,
+                "MAPE": 0.8997,
+                "RMSE": 0.0472,
+                "Accuracy": 98.74,
+                "R2_Score": 0.9897
+            }
+        }
+    }
+}

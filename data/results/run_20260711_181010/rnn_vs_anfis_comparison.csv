@@ -1,0 +1,7 @@
+Variabel,num_rules,reg_lambda,Std_Aktual,RNN_RMSE,RNN_MAE,RNN_MAPE,RNN_R2,ANFIS_RMSE,ANFIS_MAE,ANFIS_MAPE,ANFIS_R2
+Temperature,5.0,0.0001,2.96,0.32,0.14,0.45,0.99,0.71,0.52,1.89,0.94
+Humidity,3.0,0.001,16.92,2.7,1.91,2.2,0.97,2.14,1.08,1.29,0.98
+Pressure,7.0,0.001,0.6,0.13,0.1,0.01,0.95,0.12,0.09,0.01,0.96
+WindSpeed,5.0,0.01,0.74,0.53,0.32,33.75,0.5,0.53,0.35,31.97,0.49
+Irradiance,3.0,0.0001,464.39,47.17,12.65,0.9,0.99,44.68,3.04,0.84,0.99
+RATA-RATA (macro-average),,,,,,7.46,0.88,,,7.2,0.87

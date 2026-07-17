@@ -1,0 +1,46 @@
+{
+    "overall": {
+        "MAE": 2.1592,
+        "MAPE": 1.1774,
+        "RMSE": 6.4635,
+        "Accuracy": 98.82,
+        "R2_Score": 0.9378
+    },
+    "per_feature": {
+        "temperature": {
+            "MAE": 0.1252,
+            "MAPE": 0.4046,
+            "RMSE": 0.1689,
+            "Accuracy": 99.6,
+            "R2_Score": 0.9967
+        },
+        "humidity": {
+            "MAE": 0.4459,
+            "MAPE": 0.5756,
+            "RMSE": 0.6418,
+            "Accuracy": 99.42,
+            "R2_Score": 0.9979
+        },
+        "pressure": {
+            "MAE": 0.0481,
+            "MAPE": 0.0048,
+            "RMSE": 0.0636,
+            "Accuracy": 100.0,
+            "R2_Score": 0.9947
+        },
+        "windSpeed": {
+            "MAE": 0.0919,
+            "MAPE": 25.3372,
+            "RMSE": 0.2088,
+            "Accuracy": 74.66,
+            "R2_Score": 0.7005
+        },
+        "irradiance": {
+            "MAE": 10.0851,
+            "MAPE": 3.344,
+            "RMSE": 14.4359,
+            "Accuracy": 96.66,
+            "R2_Score": 0.9991
+        }
+    }
+}
